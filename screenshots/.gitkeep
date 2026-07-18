@@ -1,0 +1,1 @@
+I wanted to understand how enterprise IAM teams automate user lifecycle management instead of manually creating accounts. This project simulates an aerospace company where HR exports employee data as a CSV and PowerShell provisions users into Active Directory while assigning department and application access.
