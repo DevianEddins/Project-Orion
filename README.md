@@ -40,8 +40,10 @@ The goal is to build a portfolio that reflects real-world IAM engineering practi
 - ✅ Enterprise OU structure created
 - ✅ Department security groups created
 - ✅ Sample users created
-- 🚧 PowerShell user provisioning
-- ⏳ Identity lifecycle automation
+- ✅ CSV-driven user provisioning
+- ✅ Automated RBAC and access assignment
+- ✅ Automated employee offboarding
+- 🚧 Joiner-Mover-Leaver lifecycle automation
 - ⏳ Hybrid Microsoft Entra ID
 
 ---
@@ -58,7 +60,41 @@ Project-Orion
 ├── screenshots
 └── README.md
 ```
+# 🌑 Automated Employee Offboarding
 
+Project Orion includes a PowerShell-driven leaver workflow that securely removes access when an employee leaves Northstar Aerospace Systems.
+
+The workflow:
+
+- Locates employees by `SamAccountName`
+- Blocks built-in and privileged administrator accounts
+- Supports safe validation with `-WhatIf`
+- Disables the Active Directory account
+- Removes all non-default security-group memberships
+- Preserves the required `Domain Users` membership
+- Records the termination date and reason
+- Moves the account into the `Disabled Accounts` OU
+- Logs completed actions for review
+
+## Validation Evidence
+
+### Safe Preview
+
+![Offboarding WhatIf preview](screenshots/17-offboarding-whatif-preview.png)
+
+*PowerShell `-WhatIf` preview of account disablement, access removal, description updates, and OU relocation.*
+
+### Successful Execution
+
+![Successful offboarding](screenshots/18-offboarding-completed.png)
+
+*Successful automated offboarding of a non-privileged lab account.*
+
+### Post-Offboarding Verification
+
+![Post-offboarding verification](screenshots/19-offboarding-verification.png)
+
+*Validation confirming the account is disabled, documented, relocated, and retains only its default domain membership.*
 ---
 
 # Project Roadmap
@@ -70,14 +106,14 @@ Project-Orion
 - [x] Implement Department Security Groups
 
 ## Phase 2
-- [ ] Automated User Provisioning
-- [ ] CSV Import Automation
-- [ ] Automated Group Membership
+- [x] Automated User Provisioning
+- [x] CSV Import Automation
+- [x] Automated Group Membership
 
 ## Phase 3
 - [ ] Joiner Process
 - [ ] Mover Process
-- [ ] Leaver Process
+- [x] Leaver Process
 
 ## Phase 4
 - [ ] Active Directory Auditing
