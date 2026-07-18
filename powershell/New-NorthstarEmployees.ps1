@@ -4,7 +4,7 @@
 
 .DESCRIPTION
     Imports employee records from a CSV file, creates Active Directory user
-    accounts, assigns department and role-based groups, and logs all actions.
+    accounts, assigns department and access-based groups, and logs all actions.
 
 .NOTES
     Project: Project Orion
@@ -41,6 +41,12 @@ $DepartmentGroups = @{
     "Manufacturing"          = "GG_Manufacturing"
 }
 
+$AccessGroups = @{
+    "VPN"       = "GG_VPN_Users"
+    "M365"      = "GG_M365_Users"
+    "FileShare" = "GG_FileShare_Users"
+}
+
 function Write-OrionLog {
     param (
         [Parameter(Mandatory)]
@@ -54,7 +60,12 @@ function Write-OrionLog {
     $Entry = "[$Timestamp] [$Level] $Message"
 
     Write-Host $Entry
-    Add-Content -Path $LogPath -Value $Entry
+
+    # This writes the log even when the provisioning script uses -WhatIf.
+    [System.IO.File]::AppendAllText(
+        $LogPath,
+        "$Entry$([Environment]::NewLine)"
+    )
 }
 
 function New-OrionUsername {
@@ -67,13 +78,17 @@ function New-OrionUsername {
     )
 
     $BaseUsername = (
-        $FirstName.Substring(0, 1) + $LastName
-    ).ToLower() -replace "[^a-z0-9]", ""
+        $FirstName.Substring(0, 1) + "." + $LastName
+    ).ToLower() -replace "[^a-z0-9.]", ""
 
     $Username = $BaseUsername
     $Counter = 1
 
-    while (Get-ADUser -Filter "SamAccountName -eq '$Username'" -ErrorAction SilentlyContinue) {
+    while (
+        Get-ADUser `
+            -Filter "SamAccountName -eq '$Username'" `
+            -ErrorAction SilentlyContinue
+    ) {
         $Username = "$BaseUsername$Counter"
         $Counter++
     }
@@ -81,11 +96,53 @@ function New-OrionUsername {
     return $Username
 }
 
+function Add-OrionGroupMembership {
+    param (
+        [Parameter(Mandatory)]
+        [string]$Username,
+
+        [Parameter(Mandatory)]
+        [string]$GroupName,
+
+        [Parameter(Mandatory)]
+        [string]$GroupPurpose
+    )
+
+    $Group = Get-ADGroup `
+        -Identity $GroupName `
+        -ErrorAction SilentlyContinue
+
+    if (-not $Group) {
+        Write-OrionLog `
+            "The $GroupPurpose group '$GroupName' does not exist. Skipped assignment for $Username." `
+            "WARNING"
+
+        return
+    }
+
+    if ($PSCmdlet.ShouldProcess(
+        "$Username -> $GroupName",
+        "Add Active Directory group membership"
+    )) {
+        Add-ADGroupMember `
+            -Identity $GroupName `
+            -Members $Username
+
+        Write-OrionLog `
+            "Added $Username to $GroupPurpose group $GroupName." `
+            "SUCCESS"
+    }
+}
+
 try {
     $LogDirectory = Split-Path -Path $LogPath -Parent
 
     if (-not (Test-Path $LogDirectory)) {
-        New-Item -Path $LogDirectory -ItemType Directory -Force | Out-Null
+        New-Item `
+            -Path $LogDirectory `
+            -ItemType Directory `
+            -Force |
+            Out-Null
     }
 
     if (-not (Test-Path $CsvPath)) {
@@ -98,29 +155,50 @@ try {
 
     foreach ($Employee in $Employees) {
         try {
-            $FirstName = $Employee.FirstName.Trim()
-            $LastName = $Employee.LastName.Trim()
-            $Department = $Employee.Department.Trim()
-            $JobTitle = $Employee.JobTitle.Trim()
-            $RoleGroup = $Employee.RoleGroup.Trim()
+            $FirstName = ([string]$Employee.FirstName).Trim()
+            $LastName = ([string]$Employee.LastName).Trim()
+            $Username = ([string]$Employee.Username).Trim().ToLower()
+            $Department = ([string]$Employee.Department).Trim()
+            $JobTitle = ([string]$Employee.Title).Trim()
+            $VpnAccess = ([string]$Employee.VPN).Trim()
+            $M365Access = ([string]$Employee.M365).Trim()
+            $FileShareAccess = ([string]$Employee.FileShare).Trim()
 
             if (
                 [string]::IsNullOrWhiteSpace($FirstName) -or
                 [string]::IsNullOrWhiteSpace($LastName) -or
                 [string]::IsNullOrWhiteSpace($Department)
             ) {
-                Write-OrionLog "Skipped an incomplete employee record." "WARNING"
+                Write-OrionLog `
+                    "Skipped an incomplete employee record." `
+                    "WARNING"
+
                 continue
             }
 
             if (-not $DepartmentGroups.ContainsKey($Department)) {
-                Write-OrionLog "Invalid department '$Department' for $FirstName $LastName." "ERROR"
+                Write-OrionLog `
+                    "Invalid department '$Department' for $FirstName $LastName." `
+                    "ERROR"
+
                 continue
             }
 
-            $Username = New-OrionUsername `
-                -FirstName $FirstName `
-                -LastName $LastName
+            if ([string]::IsNullOrWhiteSpace($Username)) {
+                $Username = New-OrionUsername `
+                    -FirstName $FirstName `
+                    -LastName $LastName
+            }
+
+            $Username = $Username -replace "[^a-z0-9.-]", ""
+
+            if ([string]::IsNullOrWhiteSpace($Username)) {
+                Write-OrionLog `
+                    "A valid username could not be created for $FirstName $LastName." `
+                    "ERROR"
+
+                continue
+            }
 
             $DisplayName = "$FirstName $LastName"
             $UserPrincipalName = "$Username@$UpnSuffix"
@@ -128,12 +206,39 @@ try {
 
             $DepartmentOu = "OU=$Department,OU=People,OU=Northstar,$DomainDn"
 
-            $ExistingUser = Get-ADUser `
+            $OuExists = Get-ADOrganizationalUnit `
+                -Identity $DepartmentOu `
+                -ErrorAction SilentlyContinue
+
+            if (-not $OuExists) {
+                Write-OrionLog `
+                    "The department OU '$DepartmentOu' does not exist for $DisplayName." `
+                    "ERROR"
+
+                continue
+            }
+
+            $ExistingSamAccount = Get-ADUser `
+                -Filter "SamAccountName -eq '$Username'" `
+                -ErrorAction SilentlyContinue
+
+            if ($ExistingSamAccount) {
+                Write-OrionLog `
+                    "Skipped existing username: $Username" `
+                    "WARNING"
+
+                continue
+            }
+
+            $ExistingUpn = Get-ADUser `
                 -Filter "UserPrincipalName -eq '$UserPrincipalName'" `
                 -ErrorAction SilentlyContinue
 
-            if ($ExistingUser) {
-                Write-OrionLog "Skipped existing account: $UserPrincipalName" "WARNING"
+            if ($ExistingUpn) {
+                Write-OrionLog `
+                    "Skipped existing account: $UserPrincipalName" `
+                    "WARNING"
+
                 continue
             }
 
@@ -142,7 +247,10 @@ try {
                 -AsPlainText `
                 -Force
 
-            if ($PSCmdlet.ShouldProcess($DisplayName, "Create Active Directory user")) {
+            if ($PSCmdlet.ShouldProcess(
+                $DisplayName,
+                "Create Active Directory user $Username"
+            )) {
                 New-ADUser `
                     -Name $DisplayName `
                     -GivenName $FirstName `
@@ -158,42 +266,52 @@ try {
                     -Enabled $true `
                     -ChangePasswordAtLogon $true
 
-                Write-OrionLog "Created user $DisplayName with username $Username." "SUCCESS"
+                Write-OrionLog `
+                    "Created user $DisplayName with username $Username." `
+                    "SUCCESS"
+            }
 
-                $DepartmentGroup = $DepartmentGroups[$Department]
+            $DepartmentGroup = $DepartmentGroups[$Department]
 
-                Add-ADGroupMember `
-                    -Identity $DepartmentGroup `
-                    -Members $Username
+            Add-OrionGroupMembership `
+                -Username $Username `
+                -GroupName $DepartmentGroup `
+                -GroupPurpose "department"
 
-                Write-OrionLog "Added $Username to $DepartmentGroup." "SUCCESS"
+            if ($VpnAccess -match "^(Yes|True|1)$") {
+                Add-OrionGroupMembership `
+                    -Username $Username `
+                    -GroupName $AccessGroups["VPN"] `
+                    -GroupPurpose "VPN access"
+            }
 
-                if (-not [string]::IsNullOrWhiteSpace($RoleGroup)) {
-                    $GroupExists = Get-ADGroup `
-                        -Identity $RoleGroup `
-                        -ErrorAction SilentlyContinue
+            if ($M365Access -match "^(Yes|True|1)$") {
+                Add-OrionGroupMembership `
+                    -Username $Username `
+                    -GroupName $AccessGroups["M365"] `
+                    -GroupPurpose "Microsoft 365 access"
+            }
 
-                    if ($GroupExists) {
-                        Add-ADGroupMember `
-                            -Identity $RoleGroup `
-                            -Members $Username
-
-                        Write-OrionLog "Added $Username to role group $RoleGroup." "SUCCESS"
-                    }
-                    else {
-                        Write-OrionLog "Role group '$RoleGroup' does not exist for $Username." "WARNING"
-                    }
-                }
+            if ($FileShareAccess -match "^(Yes|True|1)$") {
+                Add-OrionGroupMembership `
+                    -Username $Username `
+                    -GroupName $AccessGroups["FileShare"] `
+                    -GroupPurpose "file-share access"
             }
         }
         catch {
-            Write-OrionLog "Failed to provision $($Employee.FirstName) $($Employee.LastName): $($_.Exception.Message)" "ERROR"
+            Write-OrionLog `
+                "Failed to provision $($Employee.FirstName) $($Employee.LastName): $($_.Exception.Message)" `
+                "ERROR"
         }
     }
 
     Write-OrionLog "Employee provisioning completed."
 }
 catch {
-    Write-OrionLog "Provisioning process failed: $($_.Exception.Message)" "ERROR"
+    Write-OrionLog `
+        "Provisioning process failed: $($_.Exception.Message)" `
+        "ERROR"
+
     exit 1
 }
