@@ -28,7 +28,8 @@ The goal is to build a portfolio that reflects real-world IAM engineering practi
 | DNS | Windows DNS |
 | Automation | PowerShell |
 | Version Control | Git & GitHub |
-| Future Integration | Microsoft Entra ID |
+| Cloud Identity | Microsoft Entra ID |
+| Sync Server | Windows Server 2022 |
 
 ---
 
@@ -314,6 +315,107 @@ This workflow demonstrates:
 
 ---
 
+## Microsoft Entra Hybrid Identity Foundation
+
+Project Orion extends the Northstar on-premises Active Directory environment into Microsoft Entra ID. This phase establishes the cloud tenant, separates administrative access, deploys a dedicated synchronization server, and configures a controlled pilot scope.
+
+### Hybrid Identity Environment
+
+| Component | Purpose |
+|---|---|
+| DC01 | Active Directory Domain Services and DNS |
+| SYNC01 | Microsoft Entra provisioning agent |
+| Microsoft Entra ID | Cloud identity directory |
+| `ad.northstar.local` | On-premises Active Directory domain |
+| `GG_CloudSync_Pilot` | Controlled pilot synchronization scope |
+
+### Tenant Security Configuration
+
+The Microsoft Entra tenant includes:
+
+- Northstar Aerospace Systems tenant branding
+- A dedicated cloud-administrator identity
+- Global Administrator role validation
+- Security Defaults enabled
+- Multifactor authentication for administrative access
+- Separation between personal and administrative identities
+
+### Synchronization Infrastructure
+
+The dedicated Windows Server 2022 synchronization server includes:
+
+- Membership in `ad.northstar.local`
+- DNS resolution through DC01
+- Connectivity to Microsoft Entra endpoints
+- Microsoft Entra provisioning agent
+- A group managed service account
+- Automatic agent-service startup
+- A selected-security-group pilot scope
+
+### Hybrid Identity Validation Evidence
+
+#### Microsoft Entra Tenant
+
+![Microsoft Entra tenant overview](screenshots/40-entra-tenant-overview.png)
+
+*Northstar Aerospace Systems tenant established in Microsoft Entra ID.*
+
+#### Security Defaults
+
+![Microsoft Entra Security Defaults](screenshots/41-entra-security-defaults-enabled.png)
+
+*Security Defaults enabled to provide baseline cloud identity protection.*
+
+#### Dedicated Cloud Administrator
+
+![Dedicated cloud administrator role](screenshots/42-entra-dedicated-admin-role.png)
+
+*Dedicated administrative identity configured separately from the personal tenant account.*
+
+#### SYNC01 Domain Membership
+
+![SYNC01 domain membership](screenshots/43-sync01-domain-joined.png)
+
+*Dedicated Windows Server 2022 synchronization server joined to `ad.northstar.local`.*
+
+#### Provisioning Agent Service
+
+![Microsoft Entra provisioning agent service](screenshots/44-entra-cloud-sync-agent-service.png)
+
+*Microsoft Entra provisioning-agent service installed on the dedicated synchronization server.*
+
+#### Active Provisioning Agent
+
+![Active Microsoft Entra provisioning agent](screenshots/45-entra-cloud-sync-agent-active.png)
+
+*SYNC01 registered as the active provisioning agent for `ad.northstar.local`.*
+
+#### Pilot Synchronization Group
+
+![Cloud Sync pilot group](screenshots/46-cloud-sync-pilot-group.png)
+
+*Dedicated pilot security group limiting synchronization scope to the approved test identity.*
+
+### Current Validation Status
+
+The tenant, dedicated synchronization server, provisioning agent, and pilot scope have been established. End-to-end pilot-user synchronization remains under validation and will be documented separately after successful provisioning.
+
+### Hybrid Identity Value
+
+This phase demonstrates:
+
+- Microsoft Entra tenant administration
+- Administrative-account separation
+- Baseline cloud identity security
+- Dedicated synchronization infrastructure
+- Group managed service accounts
+- Group-scoped pilot deployment
+- Hybrid identity troubleshooting
+- Controlled rollout and validation practices
+
+
+---
+
 # Project Roadmap
 
 ## Phase 1 — Identity Foundation
@@ -331,15 +433,25 @@ This workflow demonstrates:
 
 ## Phase 3 — Identity Lifecycle
 
-- [ ] Joiner process
+- [x] Joiner process
 - [x] Mover process
 - [x] Leaver process
 
 ## Phase 4 — Governance and Hybrid Identity
 
 - [x] Active Directory auditing
-- [ ] Identity governance reports
-- [ ] Microsoft Entra ID integration
+- [x] Identity governance reports
+- [x] Microsoft Entra ID integration
+
+## Phase 5 — Microsoft Entra Hybrid Identity
+
+- [x] Microsoft Entra tenant foundation
+- [x] Dedicated cloud administrator
+- [x] Security Defaults
+- [x] Dedicated SYNC01 server
+- [x] Cloud Sync agent deployment
+- [x] Pilot synchronization scope
+- [ ] End-to-end pilot-user synchronization
 
 ---
 
